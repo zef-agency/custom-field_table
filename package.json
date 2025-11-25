@@ -63,7 +63,7 @@
     "displayName": "table-field",
     "description": "lorem"
   },
-  "name": "table-field",
+  "name": "@sensei-tpk/table-field",
   "description": "lorem",
   "license": "MIT",
   "repository": {
