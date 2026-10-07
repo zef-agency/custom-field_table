@@ -34,6 +34,7 @@ export const TableDisplay = (props: any) => {
                   'fields.texte': true,
                   'fields.choix-oui-non': true,
                   'fields.checkbox': true,
+                  'fields.choix-multiple': true,
                 },
               },
             },
@@ -54,11 +55,13 @@ export const TableDisplay = (props: any) => {
   if (!data || !data.data || !data.data.form || !data.data.form.champs) return null;
 
   const champs = data.data.form.champs;
+  const visibleChamps = champs.filter((column: any) => !column.column_hidden);
 
   const types: any = {
     'fields.texte': 'text',
     'fields.choix-oui-non': 'boolean',
     'fields.checkbox': 'boolean',
+    'fields.choix-multiple': 'text',
   };
 
   console.log('**************************', champs);
@@ -92,7 +95,7 @@ export const TableDisplay = (props: any) => {
         <Button
           variant="secondary"
           size="S"
-          onClick={() => makeCsv(getTableDataForExport(value, champs), 'test.csv')}
+          onClick={() => makeCsv(getTableDataForExport(value, champs), '3dformworks.csv')}
         >
           Exporter en CSV
         </Button>
@@ -121,7 +124,7 @@ export const TableDisplay = (props: any) => {
                     row.map((t: any, j: number) => (
                       <Td key={j}>
                         <Typography textColor="neutral800">
-                          {types[champs[j].__component] === 'boolean'
+                          {types[visibleChamps[j]?.__component] === 'boolean'
                             ? t === true || t === 'true'
                               ? 'Oui'
                               : 'Non'
