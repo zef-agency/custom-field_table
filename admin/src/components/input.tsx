@@ -2,13 +2,22 @@ import * as React from 'react';
 import { Table, Thead, Tbody, Tr, Td, Th } from '@strapi/design-system';
 import { Box } from '@strapi/design-system';
 import { Typography } from '@strapi/design-system';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useFetchClient } from '@strapi/strapi/admin';
 import { QueryClientAccess } from './query-client';
-import { strapiF } from '../utils/strapi';
 import { Flex } from '@strapi/design-system';
 import { makeCsv } from '../utils/csv';
 import { Button } from '@strapi/design-system';
+import {
+  fetchAllLocaleTables,
+  fetchFormColumns,
+  formatCell,
+  getHeaders,
+  mergeLocaleTables,
+  resolveColumns,
+  toRecords,
+} from '../utils/event-tables';
 
 export const Input = (props: any) => {
   return (
@@ -20,30 +29,23 @@ export const Input = (props: any) => {
 
 export const TableDisplay = (props: any) => {
   const params = useParams();
+  const { search } = useLocation();
+  const { get } = useFetchClient();
+  const [isExportingAll, setIsExportingAll] = React.useState(false);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['columns', params.id],
-    queryFn: async () =>
-      strapiF.findOne<any>({
-        url: `/${params?.slug?.split('.')[1]}s/${params.id}`,
-        populate: {
-          form: {
-            populate: {
-              champs: {
-                on: {
-                  'fields.texte': true,
-                  'fields.choix-oui-non': true,
-                  'fields.checkbox': true,
-                  'fields.choix-multiple': true,
-                },
-              },
-            },
-          },
-        },
-      }),
+  const uid = params.slug;
+  const documentId = params.id;
+  const locale = new URLSearchParams(search).get('plugins[i18n][locale]') ?? undefined;
+  const isSaved = Boolean(uid && documentId && documentId !== 'create');
+
+  const { data: formColumns, isLoading } = useQuery({
+    queryKey: ['table-field-columns', uid, documentId, locale],
+    queryFn: () => fetchFormColumns(get, uid!, documentId!, locale),
+    enabled: isSaved,
   });
 
   const value = props.value;
+  const rows: any[][] = Array.isArray(value?.rows) ? value.rows : [];
 
   if (isLoading)
     return (
@@ -52,37 +54,18 @@ export const TableDisplay = (props: any) => {
       </Flex>
     );
 
-  if (!data || !data.data || !data.data.form || !data.data.form.champs) return null;
+  const columns = resolveColumns(formColumns ?? null, value);
+  const headers = getHeaders(columns, rows);
 
-  const champs = data.data.form.champs;
-  const visibleChamps = champs.filter((column: any) => !column.column_hidden);
-
-  const types: any = {
-    'fields.texte': 'text',
-    'fields.choix-oui-non': 'boolean',
-    'fields.checkbox': 'boolean',
-    'fields.choix-multiple': 'text',
-  };
-
-  console.log('**************************', champs);
-  console.log('**************************', value);
-
-  const getTableDataForExport = (data: any, columns: any) => {
-    const rows = data.rows.map((row: any) => {
-      const rowData: any = {};
-      columns
-        .filter((column: any) => !column.column_hidden)
-        .forEach((column: any, index: number) => {
-          rowData[column.column_label] =
-            types[column.__component] === 'boolean'
-              ? row[index] === true || row[index] === 'true'
-                ? 'Oui'
-                : 'Non'
-              : row[index];
-        });
-      return rowData;
-    });
-    return rows;
+  const exportAllLocales = async () => {
+    setIsExportingAll(true);
+    try {
+      const tables = await fetchAllLocaleTables(get, uid!, documentId!, locale);
+      const records = mergeLocaleTables(tables);
+      if (records.length) makeCsv(records, '3dformworks-toutes-langues.csv');
+    } finally {
+      setIsExportingAll(false);
+    }
   };
 
   return (
@@ -92,46 +75,45 @@ export const TableDisplay = (props: any) => {
           Résultats au formulaire
         </Typography>
 
-        <Button
-          variant="secondary"
-          size="S"
-          onClick={() => makeCsv(getTableDataForExport(value, champs), '3dformworks.csv')}
-        >
-          Exporter en CSV
-        </Button>
+        <Flex gap={2}>
+          <Button
+            variant="secondary"
+            size="S"
+            disabled={!rows.length}
+            onClick={() => makeCsv(toRecords(columns, rows, headers), '3dformworks.csv')}
+          >
+            Exporter en CSV
+          </Button>
+          {isSaved && (
+            <Button variant="secondary" size="S" loading={isExportingAll} onClick={exportAllLocales}>
+              Exporter toutes les langues
+            </Button>
+          )}
+        </Flex>
       </Flex>
       <Box width="100%" padding={0} background="neutral100">
-        <Table colCount={champs.length} paddingBottom={2}>
+        <Table colCount={headers.length} paddingBottom={2}>
           <Thead>
             <Tr>
-              {champs
-                .filter((column: any) => !column.column_hidden)
-                .map((column: any) => (
-                  <Th key={column.column_label}>
-                    <Typography variant="sigma">{column.column_label}</Typography>
-                  </Th>
-                ))}
+              {headers.map((header) => (
+                <Th key={header}>
+                  <Typography variant="sigma">{header}</Typography>
+                </Th>
+              ))}
             </Tr>
           </Thead>
 
           <Tbody>
-            {value ? (
-              value.rows &&
-              value.rows.map((row: any, i: number) => (
+            {rows.length ? (
+              rows.map((row: any, i: number) => (
                 <Tr key={i}>
-                  {row &&
-                    Array.isArray(row) &&
-                    row.map((t: any, j: number) => (
-                      <Td key={j}>
-                        <Typography textColor="neutral800">
-                          {types[visibleChamps[j]?.__component] === 'boolean'
-                            ? t === true || t === 'true'
-                              ? 'Oui'
-                              : 'Non'
-                            : t}
-                        </Typography>
-                      </Td>
-                    ))}
+                  {headers.map((header, j) => (
+                    <Td key={header}>
+                      <Typography textColor="neutral800">
+                        {formatCell(Array.isArray(row) ? row[j] : undefined, columns?.[j])}
+                      </Typography>
+                    </Td>
+                  ))}
                 </Tr>
               ))
             ) : (
